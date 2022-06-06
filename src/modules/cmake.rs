@@ -1,10 +1,10 @@
-use super::{Context, Module, RootModuleConfig};
+use super::{Context, Module, ModuleConfig};
 use crate::formatter::VersionFormatter;
 
 use crate::configs::cmake::CMakeConfig;
 use crate::formatter::StringFormatter;
 
-/// Creates a module with the current CMake version
+/// Creates a module with the current `CMake` version
 pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     let mut module = context.new_module("cmake");
     let config = CMakeConfig::try_load(module.config);

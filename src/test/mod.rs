@@ -1,7 +1,7 @@
 use crate::context::{Context, Shell, Target};
 use crate::logger::StarshipLogger;
 use crate::{
-    config::{RootModuleConfig, StarshipConfig},
+    config::{ModuleConfig, StarshipConfig},
     configs::StarshipRootConfig,
     utils::{create_command, CommandOutput},
 };
@@ -51,7 +51,7 @@ pub struct ModuleRenderer<'a> {
 }
 
 impl<'a> ModuleRenderer<'a> {
-    /// Creates a new ModuleRenderer
+    /// Creates a new `ModuleRenderer`
     pub fn new(name: &'a str) -> Self {
         // Start logger
         Lazy::force(&LOGGER);
@@ -91,13 +91,13 @@ impl<'a> ModuleRenderer<'a> {
         self
     }
 
-    /// Adds the variable to the env_mocks of the underlying context
+    /// Adds the variable to the `env_mocks` of the underlying context
     pub fn env<V: Into<String>>(mut self, key: &'a str, val: V) -> Self {
         self.context.env.insert(key, val.into());
         self
     }
 
-    /// Adds the command to the commandv_mocks of the underlying context
+    /// Adds the command to the `command_mocks` of the underlying context
     pub fn cmd(mut self, key: &'a str, val: Option<CommandOutput>) -> Self {
         self.context.cmd.insert(key, val);
         self
@@ -126,7 +126,7 @@ impl<'a> ModuleRenderer<'a> {
         self
     }
 
-    pub fn status(mut self, status: i32) -> Self {
+    pub fn status(mut self, status: i64) -> Self {
         self.context.properties.status_code = Some(status.to_string());
         self
     }
@@ -140,7 +140,7 @@ impl<'a> ModuleRenderer<'a> {
         self
     }
 
-    pub fn pipestatus(mut self, status: &[i32]) -> Self {
+    pub fn pipestatus(mut self, status: &[i64]) -> Self {
         self.context.properties.pipestatus = Some(
             status
                 .iter()
@@ -161,6 +161,7 @@ impl<'a> ModuleRenderer<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum FixtureProvider {
     Git,
     Hg,
@@ -185,6 +186,21 @@ pub fn fixture_repo(provider: FixtureProvider) -> io::Result<TempDir> {
 
             create_command("git")?
                 .args(&["config", "--local", "user.name", "starship"])
+                .current_dir(&path.path())
+                .output()?;
+
+            // Prevent intermittent test failures and ensure that the result of git commands
+            // are available during I/O-contentious tests, by having git run `fsync`.
+            // This is especially important on Windows.
+            // Newer, more far-reaching git setting for `fsync`, that's not yet widely supported:
+            create_command("git")?
+                .args(&["config", "--local", "core.fsync", "all"])
+                .current_dir(&path.path())
+                .output()?;
+
+            // Older git setting for `fsync` for compatibility with older git versions:
+            create_command("git")?
+                .args(&["config", "--local", "core.fsyncObjectFiles", "true"])
                 .current_dir(&path.path())
                 .output()?;
 

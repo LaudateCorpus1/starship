@@ -9,6 +9,14 @@ on:
       - "docs/**"
       - "**.md"
 
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUST_BACKTRACE: short
+  RUSTFLAGS: "-D warnings"
+  RUSTUP_MAX_RETRIES: 10
+  MACOSX_DEPLOYMENT_TARGET: 10.7
+
 jobs:
   # Run the `rustfmt` code formatter
   rustfmt:
@@ -16,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup | Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup | Rust
         uses: actions-rs/toolchain@v1.0.7
@@ -25,9 +33,6 @@ jobs:
           override: true
           profile: minimal
           components: rustfmt
-
-      - name: Setup | libdbus (ubuntu)
-        run: sudo apt-get install libdbus-1-dev
 
       - name: Build | Format
         run: cargo fmt --all -- --check
@@ -41,14 +46,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Setup | Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup | Cache
         uses: Swatinem/rust-cache@v1
-
-      - name: Setup | libdbus (ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install libdbus-1-dev
 
       - name: Setup | Rust
         uses: actions-rs/toolchain@v1.0.7
@@ -70,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup | Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup | Cache
         uses: Swatinem/rust-cache@v1
@@ -92,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup | Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup | Cache
         uses: Swatinem/rust-cache@v1
@@ -114,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup | Checkout
-        uses: actions/checkout@v2.4.0
+        uses: actions/checkout@v3
 
       - name: Setup | Cache
         uses: Swatinem/rust-cache@v1
@@ -129,6 +130,31 @@ jobs:
       - name: Build | Check
         run: cargo check --workspace --locked --all-features
 
+  # Check if config schema needs to be updated to reflect updated configuration options
+  check_if_config_schema_up_to_date:
+    name: Check if config schema is up to date
+    needs: cargo_check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup | Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup | Cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Setup | Rust
+        uses: actions-rs/toolchain@v1.0.7
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Run | Generate Schema
+        run: cargo run --locked --features config-schema -- config-schema > .github/config-schema.json
+
+      - name: Check | Detect Changes
+        run: git diff --exit-code .github/config-schema.json
+
   # Run tests on Linux, macOS, and Windows
   # On both Rust stable and Rust nightly
   test:
@@ -140,13 +166,14 @@ jobs:
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
         rust: [stable, nightly]
+        include:
+          - os: windows-latest
+            rustflags: -C target-feature=+crt-static
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags || '' }}
     steps:
       - name: Setup | Checkout
-        uses: actions/checkout@v2.4.0
-
-      - name: Setup | libdbus (ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install libdbus-1-dev
+        uses: actions/checkout@v3
 
       - name: Setup | Cache
         uses: Swatinem/rust-cache@v1
@@ -156,8 +183,24 @@ jobs:
         uses: actions-rs/toolchain@v1.0.7
         with:
           toolchain: ${{ matrix.rust }}
+          components: llvm-tools-preview
           profile: minimal
           override: true
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      # For windows installer test
+      # On stable rust & main repo pushes only
+      - name: Install cargo-wix [Windows]
+        continue-on-error: true
+        if: >
+          matrix.os == 'windows-latest' && matrix.rust == 'stable' &&
+          github.repository == 'starship/starship' && github.event.type == 'push_event'
+        run: cargo install --version 0.3.2 cargo-wix
+        env:
+          # cargo-wix does not require static crt
+          RUSTFLAGS: ''
 
       # Install Mercurial (pre-installed on Linux and windows)
       - name: Setup | Mercurial (macos)
@@ -166,4 +209,30 @@ jobs:
 
       # Run the ignored tests that expect the above setup
       - name: Build | Test
-        run: cargo test --workspace --locked --all-features -- -Z unstable-options --include-ignored
+        run: "cargo llvm-cov
+          --all-features
+          --locked
+          --workspace
+          --lcov --output-path lcov.info
+          -- --include-ignored"
+        env:
+          # Avoid -D warnings on nightly builds
+          RUSTFLAGS: ""
+
+      - name: Build | Installer [Windows]
+        continue-on-error: true
+        if: >
+          matrix.os == 'windows-latest' && matrix.rust == 'stable' &&
+          github.repository == 'starship/starship' && github.event.type == 'push_event'
+        uses: actions-rs/cargo@v1.0.3
+        with:
+          command: wix
+          args: --dbg-build -v --nocapture -I install/windows/main.wxs
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        if: github.repository == 'starship/starship'
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true

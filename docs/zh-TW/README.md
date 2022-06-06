@@ -42,8 +42,9 @@ description: Starship 是適合任何 shell 的最小、極速、高度客製化
    使用 Shell 安裝：
 
    ```sh
-   sh -c "$(curl -fsSL https://starship.rs/install.sh)"
+   curl -sS https://starship.rs/install.sh | sh
    ```
+
    如果想更新已安裝的 Starship，請重新執行上述指令。 指令只會更新 Starship 執行檔本身，不會影響到任何已撰寫的設定檔。
 
 
@@ -119,7 +120,11 @@ description: Starship 是適合任何 shell 的最小、極速、高度客製化
 
    #### Elvish
 
-   ::: warning Only elvish v0.17 or higher is supported. :::
+   ::: warning
+
+   Only elvish v0.18 or higher is supported.
+
+   :::
 
    將以下內容放到 `~/.elvish/rc.elv` 的結尾：
 
@@ -143,21 +148,27 @@ description: Starship 是適合任何 shell 的最小、極速、高度客製化
 
    #### Nushell
 
-   ::: warning 這項設定可能在未來改變 只支援 nu v0.33 以上的版本。 ::: 將以下內容放到你的 nu 設定檔裡， 你可以透過在 nu 執行 `config path` 指令來取得設定檔的位置。
+   ::: warning
 
-   ```toml
-   startup = [
-    "mkdir ~/.cache/starship",
-    "starship init nu | save ~/.cache/starship/init.nu",
-    "source ~/.cache/starship/init.nu"
-   ]
-   prompt = "starship_prompt"
+   This will change in the future. Only Nushell v0.61+ is supported.
+
+   :::
+
+   Add the following to to the end of your Nushell env file (find it by running `$nu.env-path` in Nushell):
+   ```sh
+   mkdir ~/.cache/starship
+   starship init nu | save ~/.cache/starship/init.nu
    ```
 
+   And add the following to the end of your Nushell configuration (find it by running `$nu.config-path`):
+
+   ```sh
+   source ~/.cache/starship/init.nu
+   ```
 
    #### Xonsh
 
-   將以下內容放到 `~/.xonshrc` 的結尾：
+   將以下內容加到 `~/.xonshrc` 的結尾：
 
    ```sh
    # ~/.xonshrc

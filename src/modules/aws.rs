@@ -3,15 +3,19 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use chrono::DateTime;
+use ini::Ini;
+use once_cell::unsync::OnceCell;
 
-use super::{Context, Module, RootModuleConfig};
+use super::{Context, Module, ModuleConfig};
 
 use crate::configs::aws::AwsConfig;
 use crate::formatter::StringFormatter;
-use crate::utils::{read_file, render_time};
+use crate::utils::render_time;
 
 type Profile = String;
 type Region = String;
+type AwsConfigFile = OnceCell<Option<Ini>>;
+type AwsCredsFile = OnceCell<Option<Ini>>;
 
 fn get_credentials_file_path(context: &Context) -> Option<PathBuf> {
     context
@@ -35,106 +39,169 @@ fn get_config_file_path(context: &Context) -> Option<PathBuf> {
         })
 }
 
-fn get_aws_region_from_config(context: &Context, aws_profile: Option<&str>) -> Option<Region> {
-    let config_location = get_config_file_path(context)?;
-
-    let contents = read_file(&config_location).ok()?;
-
-    let region_line = if let Some(aws_profile) = aws_profile {
-        contents
-            .lines()
-            .skip_while(|line| line != &format!("[profile {}]", &aws_profile))
-            .skip(1)
-            .take_while(|line| !line.starts_with('['))
-            .find(|line| line.starts_with("region"))
-    } else {
-        contents
-            .lines()
-            .skip_while(|&line| line != "[default]")
-            .skip(1)
-            .take_while(|line| !line.starts_with('['))
-            .find(|line| line.starts_with("region"))
-    }?;
-
-    let region = region_line.split('=').nth(1)?;
-    let region = region.trim();
-
-    Some(region.to_string())
+// Initialize the AWS config file once
+fn get_config<'a>(context: &Context, config: &'a OnceCell<Option<Ini>>) -> Option<&'a Ini> {
+    config
+        .get_or_init(|| {
+            let path = get_config_file_path(context)?;
+            Ini::load_from_file(path).ok()
+        })
+        .as_ref()
 }
 
-fn get_aws_profile_and_region(context: &Context) -> (Option<Profile>, Option<Region>) {
-    let profile_env_vars = vec!["AWSU_PROFILE", "AWS_VAULT", "AWSUME_PROFILE", "AWS_PROFILE"];
-    let profile = profile_env_vars
-        .iter()
-        .find_map(|env_var| context.get_env(env_var));
-    let region = context
-        .get_env("AWS_DEFAULT_REGION")
-        .or_else(|| context.get_env("AWS_REGION"));
-    match (profile, region) {
-        (Some(p), Some(r)) => (Some(p), Some(r)),
-        (None, Some(r)) => (None, Some(r)),
-        (Some(ref p), None) => (
-            Some(p.clone()),
-            get_aws_region_from_config(context, Some(p)),
-        ),
-        (None, None) => (None, get_aws_region_from_config(context, None)),
+// Initialize the AWS credentials file once
+fn get_creds<'a>(context: &Context, config: &'a OnceCell<Option<Ini>>) -> Option<&'a Ini> {
+    config
+        .get_or_init(|| {
+            let path = get_credentials_file_path(context)?;
+            Ini::load_from_file(path).ok()
+        })
+        .as_ref()
+}
+
+// Get the section for a given profile name in the config file.
+fn get_profile_config<'a>(
+    config: &'a Ini,
+    profile: &Option<Profile>,
+) -> Option<&'a ini::Properties> {
+    match profile {
+        Some(profile) => config.section(Some(format!("profile {}", profile))),
+        None => config.section(Some("default")),
     }
 }
 
-fn get_credentials_duration(context: &Context, aws_profile: Option<&Profile>) -> Option<i64> {
-    let expiration_env_vars = vec!["AWS_SESSION_EXPIRATION", "AWSUME_EXPIRATION"];
+// Get the section for a given profile name in the credentials file.
+fn get_profile_creds<'a>(
+    config: &'a Ini,
+    profile: &Option<Profile>,
+) -> Option<&'a ini::Properties> {
+    match profile {
+        None => config.section(Some("default")),
+        _ => config.section(profile.as_ref()),
+    }
+}
+
+fn get_aws_region_from_config(
+    context: &Context,
+    aws_profile: &Option<Profile>,
+    aws_config: &AwsConfigFile,
+) -> Option<Region> {
+    let config = get_config(context, aws_config)?;
+    let section = get_profile_config(config, aws_profile)?;
+
+    section.get("region").map(std::borrow::ToOwned::to_owned)
+}
+
+fn get_aws_profile_and_region(
+    context: &Context,
+    aws_config: &AwsConfigFile,
+) -> (Option<Profile>, Option<Region>) {
+    let profile_env_vars = ["AWSU_PROFILE", "AWS_VAULT", "AWSUME_PROFILE", "AWS_PROFILE"];
+    let region_env_vars = ["AWS_REGION", "AWS_DEFAULT_REGION"];
+    let profile = profile_env_vars
+        .iter()
+        .find_map(|env_var| context.get_env(env_var));
+    let region = region_env_vars
+        .iter()
+        .find_map(|env_var| context.get_env(env_var));
+    match (profile, region) {
+        (Some(p), Some(r)) => (Some(p), Some(r)),
+        (None, Some(r)) => (None, Some(r)),
+        (Some(p), None) => (
+            Some(p.clone()),
+            get_aws_region_from_config(context, &Some(p), aws_config),
+        ),
+        (None, None) => (None, get_aws_region_from_config(context, &None, aws_config)),
+    }
+}
+
+fn get_credentials_duration(
+    context: &Context,
+    aws_profile: &Option<String>,
+    aws_creds: &AwsCredsFile,
+) -> Option<i64> {
+    let expiration_env_vars = ["AWS_SESSION_EXPIRATION", "AWSUME_EXPIRATION"];
     let expiration_date = if let Some(expiration_date) = expiration_env_vars
         .iter()
         .find_map(|env_var| context.get_env(env_var))
     {
         chrono::DateTime::parse_from_rfc3339(&expiration_date).ok()
     } else {
-        let contents = read_file(get_credentials_file_path(context)?).ok()?;
+        let creds = get_creds(context, aws_creds)?;
+        let section = get_profile_creds(creds, aws_profile)?;
 
-        let profile_line = if let Some(aws_profile) = aws_profile {
-            format!("[{}]", aws_profile)
-        } else {
-            "[default]".to_string()
-        };
-
-        let expiration_date_line = contents
-            .lines()
-            .skip_while(|line| line != &profile_line)
-            .skip(1)
-            .take_while(|line| !line.starts_with('['))
-            .find(|line| line.starts_with("expiration"))?;
-
-        let expiration_date = expiration_date_line.split('=').nth(1)?.trim();
-        DateTime::parse_from_rfc3339(expiration_date).ok()
+        section
+            .get("expiration")
+            .and_then(|expiration| DateTime::parse_from_rfc3339(expiration).ok())
     }?;
 
     Some(expiration_date.timestamp() - chrono::Local::now().timestamp())
 }
 
-fn alias_region(region: String, aliases: &HashMap<String, &str>) -> String {
-    match aliases.get(&region) {
-        None => region,
-        Some(alias) => (*alias).to_string(),
+fn alias_name(name: Option<String>, aliases: &HashMap<String, &str>) -> Option<String> {
+    name.as_ref()
+        .and_then(|n| aliases.get(n))
+        .map(|&a| a.to_string())
+        .or(name)
+}
+
+fn has_credential_process_or_sso(
+    context: &Context,
+    aws_profile: &Option<Profile>,
+    aws_config: &AwsConfigFile,
+) -> Option<bool> {
+    let config = get_config(context, aws_config)?;
+
+    let section = get_profile_config(config, aws_profile)?;
+    Some(section.contains_key("credential_process") || section.contains_key("sso_start_url"))
+}
+
+fn has_defined_credentials(
+    context: &Context,
+    aws_profile: &Option<Profile>,
+    aws_creds: &AwsCredsFile,
+) -> Option<bool> {
+    let valid_env_vars = [
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+    ];
+
+    // accept if set through environment variable
+    if valid_env_vars
+        .iter()
+        .any(|env_var| context.get_env(env_var).is_some())
+    {
+        return Some(true);
     }
+
+    let creds = get_creds(context, aws_creds)?;
+    let section = get_profile_creds(creds, aws_profile)?;
+    Some(section.contains_key("aws_access_key_id"))
 }
 
 pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     let mut module = context.new_module("aws");
     let config: AwsConfig = AwsConfig::try_load(module.config);
 
-    let (aws_profile, aws_region) = get_aws_profile_and_region(context);
+    let aws_config = OnceCell::new();
+    let aws_creds = OnceCell::new();
+
+    let (aws_profile, aws_region) = get_aws_profile_and_region(context, &aws_config);
     if aws_profile.is_none() && aws_region.is_none() {
         return None;
     }
 
-    let mapped_region = if let Some(aws_region) = aws_region {
-        Some(alias_region(aws_region, &config.region_aliases))
-    } else {
-        None
-    };
+    // only display if credential_process is defined or has valid credentials
+    if !config.force_display
+        && !has_credential_process_or_sso(context, &aws_profile, &aws_config).unwrap_or(false)
+        && !has_defined_credentials(context, &aws_profile, &aws_creds).unwrap_or(false)
+    {
+        return None;
+    }
 
     let duration = {
-        get_credentials_duration(context, aws_profile.as_ref()).map(|duration| {
+        get_credentials_duration(context, &aws_profile, &aws_creds).map(|duration| {
             if duration > 0 {
                 render_time((duration * 1000) as u128, false)
             } else {
@@ -142,6 +209,10 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
             }
         })
     };
+
+    let mapped_region = alias_name(aws_region, &config.region_aliases);
+
+    let mapped_profile = alias_name(aws_profile, &config.profile_aliases);
 
     let parsed = StringFormatter::new(config.format).and_then(|formatter| {
         formatter
@@ -154,7 +225,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
                 _ => None,
             })
             .map(|variable| match variable {
-                "profile" => aws_profile.as_ref().map(Ok),
+                "profile" => mapped_profile.as_ref().map(Ok),
                 "region" => mapped_region.as_ref().map(Ok),
                 "duration" => duration.as_ref().map(Ok),
                 _ => None,
@@ -193,6 +264,7 @@ mod tests {
     fn region_set() {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_REGION", "ap-northeast-2")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -206,6 +278,7 @@ mod tests {
     fn region_set_with_alias() {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_REGION", "ap-southeast-2")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .config(toml::toml! {
                 [aws.region_aliases]
                 ap-southeast-2 = "au"
@@ -221,10 +294,11 @@ mod tests {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_REGION", "ap-northeast-2")
             .env("AWS_DEFAULT_REGION", "ap-northeast-1")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
-            Color::Yellow.bold().paint("☁️  (ap-northeast-1) ")
+            Color::Yellow.bold().paint("☁️  (ap-northeast-2) ")
         ));
 
         assert_eq!(expected, actual);
@@ -234,6 +308,7 @@ mod tests {
     fn profile_set() {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_PROFILE", "astronauts")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -248,6 +323,7 @@ mod tests {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_VAULT", "astronauts-vault")
             .env("AWS_PROFILE", "astronauts-profile")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -262,6 +338,7 @@ mod tests {
         let actual = ModuleRenderer::new("aws")
             .env("AWSU_PROFILE", "astronauts-awsu")
             .env("AWS_PROFILE", "astronauts-profile")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -276,6 +353,7 @@ mod tests {
         let actual = ModuleRenderer::new("aws")
             .env("AWSUME_PROFILE", "astronauts-awsume")
             .env("AWS_PROFILE", "astronauts-profile")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -290,12 +368,53 @@ mod tests {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_PROFILE", "astronauts")
             .env("AWS_REGION", "ap-northeast-2")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
             Color::Yellow
                 .bold()
                 .paint("☁️  astronauts (ap-northeast-2) ")
+        ));
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn profile_set_with_alias() {
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_PROFILE", "CORPORATION-CORP_astronauts_ACCESS_GROUP")
+            .env("AWS_REGION", "ap-northeast-2")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
+            .config(toml::toml! {
+                [aws.profile_aliases]
+                CORPORATION-CORP_astronauts_ACCESS_GROUP = "astro"
+            })
+            .collect();
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow.bold().paint("☁️  astro (ap-northeast-2) ")
+        ));
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn region_and_profile_both_set_with_alias() {
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_PROFILE", "CORPORATION-CORP_astronauts_ACCESS_GROUP")
+            .env("AWS_REGION", "ap-southeast-2")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
+            .config(toml::toml! {
+                [aws.profile_aliases]
+                CORPORATION-CORP_astronauts_ACCESS_GROUP = "astro"
+                [aws.region_aliases]
+                ap-southeast-2 = "au"
+            })
+            .collect();
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow.bold().paint("☁️  astro (au) ")
         ));
 
         assert_eq!(expected, actual);
@@ -341,6 +460,7 @@ mod tests {
         file.write_all(
             "[default]
 region = us-east-1
+credential_process = /opt/bin/awscreds-retriever
 
 [profile astronauts]
 region = us-east-2
@@ -372,6 +492,7 @@ region = us-east-1
 
 [profile astronauts]
 region = us-east-2
+credential_process = /opt/bin/awscreds-retriever
 "
             .as_bytes(),
         )?;
@@ -397,6 +518,7 @@ region = us-east-2
         let actual = ModuleRenderer::new("aws")
             .env("AWS_PROFILE", "astronauts")
             .env("AWS_REGION", "ap-northeast-1")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -412,6 +534,7 @@ region = us-east-2
     fn profile_set_with_display_all() {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_PROFILE", "astronauts")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -425,6 +548,7 @@ region = us-east-2
     fn region_set_with_display_all() {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_REGION", "ap-northeast-1")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -439,6 +563,7 @@ region = us-east-2
         let actual = ModuleRenderer::new("aws")
             .env("AWS_PROFILE", "astronauts")
             .env("AWS_DEFAULT_REGION", "ap-northeast-1")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .config(toml::toml! {
                 [aws]
                 format = "on [$symbol$region]($style) "
@@ -457,6 +582,7 @@ region = us-east-2
         let actual = ModuleRenderer::new("aws")
             .env("AWS_PROFILE", "astronauts")
             .env("AWS_REGION", "ap-northeast-1")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .config(toml::toml! {
                 [aws]
                 format = "on [$symbol$profile]($style) "
@@ -474,6 +600,7 @@ region = us-east-2
     fn region_set_with_display_profile() {
         let actual = ModuleRenderer::new("aws")
             .env("AWS_REGION", "ap-northeast-1")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .config(toml::toml! {
                 [aws]
                 format = "on [$symbol$profile]($style) "
@@ -494,12 +621,9 @@ region = us-east-2
         );
 
         let actual = ModuleRenderer::new("aws")
-            .config(toml::toml! {
-                [aws]
-                show_duration = true
-            })
             .env("AWS_PROFILE", "astronauts")
             .env("AWS_REGION", "ap-northeast-2")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .env(
                 "AWS_SESSION_EXPIRATION",
                 now_plus_half_hour.to_rfc3339_opts(SecondsFormat::Secs, true),
@@ -509,7 +633,7 @@ region = us-east-2
             "on {}",
             Color::Yellow
                 .bold()
-                .paint("☁️  astronauts (ap-northeast-2) [30m]")
+                .paint("☁️  astronauts (ap-northeast-2) [30m] ")
         ));
 
         assert_eq!(expected, actual);
@@ -543,10 +667,6 @@ expiration={}
         )?;
 
         let actual = ModuleRenderer::new("aws")
-            .config(toml::toml! {
-                [aws]
-                show_duration = true
-            })
             .env("AWS_PROFILE", "astronauts")
             .env("AWS_REGION", "ap-northeast-2")
             .env(
@@ -559,7 +679,7 @@ expiration={}
         // on shared runners may delay it. Allow for up to 2 seconds of delay.
         let possible_values = ["30m", "29m59s", "29m58s"];
         let possible_values = possible_values.map(|duration| {
-            let segment_colored = format!("☁️  astronauts (ap-northeast-2) [{}]", duration);
+            let segment_colored = format!("☁️  astronauts (ap-northeast-2) [{}] ", duration);
             Some(format!(
                 "on {}",
                 Color::Yellow.bold().paint(segment_colored)
@@ -574,12 +694,9 @@ expiration={}
     #[test]
     fn profile_and_region_set_show_duration() {
         let actual = ModuleRenderer::new("aws")
-            .config(toml::toml! {
-                [aws]
-                show_duration = true
-            })
             .env("AWS_PROFILE", "astronauts")
             .env("AWS_REGION", "ap-northeast-2")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .collect();
         let expected = Some(format!(
             "on {}",
@@ -605,11 +722,11 @@ expiration={}
         let actual = ModuleRenderer::new("aws")
             .config(toml::toml! {
                 [aws]
-                show_duration = true
                 expiration_symbol = symbol
             })
             .env("AWS_PROFILE", "astronauts")
             .env("AWS_REGION", "ap-northeast-2")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
             .env(
                 "AWS_SESSION_EXPIRATION",
                 now.to_rfc3339_opts(SecondsFormat::Secs, true),
@@ -619,7 +736,7 @@ expiration={}
             "on {}",
             Color::Yellow
                 .bold()
-                .paint(format!("☁️  astronauts (ap-northeast-2) [{}]", symbol))
+                .paint(format!("☁️  astronauts (ap-northeast-2) [{}] ", symbol))
         ));
 
         assert_eq!(expected, actual);
@@ -635,6 +752,196 @@ expiration={}
             })
             .collect();
         let expected = None;
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn missing_any_credentials() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let config_path = dir.path().join("config");
+        let mut file = File::create(&config_path)?;
+
+        file.write_all(
+            "[default]
+region = us-east-1
+output = json
+
+[profile astronauts]
+region = us-east-2
+"
+            .as_bytes(),
+        )?;
+
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_CONFIG_FILE", config_path.to_string_lossy().as_ref())
+            .collect();
+        let expected = None;
+
+        assert_eq!(expected, actual);
+        dir.close()
+    }
+
+    #[test]
+    fn missing_any_credentials_but_display_empty() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let config_path = dir.path().join("config");
+        let mut file = File::create(&config_path)?;
+
+        file.write_all(
+            "[profile astronauts]
+region = us-east-2
+"
+            .as_bytes(),
+        )?;
+
+        let actual = ModuleRenderer::new("aws")
+            .config(toml::toml! {
+                [aws]
+                force_display = true
+            })
+            .env("AWS_CONFIG_FILE", config_path.to_string_lossy().as_ref())
+            .env("AWS_PROFILE", "astronauts")
+            .collect();
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow.bold().paint("☁️  astronauts (us-east-2) ")
+        ));
+
+        assert_eq!(expected, actual);
+        dir.close()
+    }
+
+    #[test]
+    fn access_key_credential_set() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let credentials_path = dir.path().join("credentials");
+        let mut file = File::create(&credentials_path)?;
+
+        file.write_all(
+            "[astronauts]
+aws_access_key_id=dummy
+aws_secret_access_key=dummy
+"
+            .as_bytes(),
+        )?;
+
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_PROFILE", "astronauts")
+            .env("AWS_REGION", "ap-northeast-2")
+            .env(
+                "AWS_CREDENTIALS_FILE",
+                credentials_path.to_string_lossy().as_ref(),
+            )
+            .collect();
+
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow
+                .bold()
+                .paint("☁️  astronauts (ap-northeast-2) ")
+        ));
+
+        assert_eq!(expected, actual);
+
+        dir.close()
+    }
+
+    #[test]
+    fn credential_process_set() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let config_path = dir.path().join("config");
+        let mut file = File::create(&config_path)?;
+
+        file.write_all(
+            "[default]
+region = ap-northeast-2
+credential_process = /opt/bin/awscreds-retriever
+"
+            .as_bytes(),
+        )?;
+
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_CONFIG_FILE", config_path.to_string_lossy().as_ref())
+            .collect();
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow.bold().paint("☁️  (ap-northeast-2) ")
+        ));
+
+        assert_eq!(expected, actual);
+        dir.close()
+    }
+
+    #[test]
+    fn sso_set() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let config_path = dir.path().join("config");
+        let mut file = File::create(&config_path)?;
+
+        file.write_all(
+            "[default]
+region = ap-northeast-2
+sso_start_url = https://starship.rs/sso
+sso_region = <SSO-Default-Region>
+sso_account_id = <AWS ACCOUNT ID>
+sso_role_name = <AWS-ROLE-NAME>
+"
+            .as_bytes(),
+        )?;
+
+        file.sync_all()?;
+
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_CONFIG_FILE", config_path.to_string_lossy().as_ref())
+            .collect();
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow.bold().paint("☁️  (ap-northeast-2) ")
+        ));
+
+        assert_eq!(expected, actual);
+        dir.close()
+    }
+
+    #[test]
+    fn access_key_env_var_set() {
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_PROFILE", "astronauts")
+            .env("AWS_ACCESS_KEY_ID", "dummy")
+            .collect();
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow.bold().paint("☁️  astronauts ")
+        ));
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn secret_access_key_env_var_set() {
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_PROFILE", "astronauts")
+            .env("AWS_SECRET_ACCESS_KEY", "dummy")
+            .collect();
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow.bold().paint("☁️  astronauts ")
+        ));
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn session_token_env_var_set() {
+        let actual = ModuleRenderer::new("aws")
+            .env("AWS_PROFILE", "astronauts")
+            .env("AWS_SESSION_TOKEN", "dummy")
+            .collect();
+        let expected = Some(format!(
+            "on {}",
+            Color::Yellow.bold().paint("☁️  astronauts ")
+        ));
 
         assert_eq!(expected, actual);
     }

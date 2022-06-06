@@ -1,4 +1,4 @@
-# FAQ
+# Frequently Asked Questions
 
 ## Qual è la configurazione utilizzata nella GIF demo?
 
@@ -53,12 +53,12 @@ Il prompt userà tanto contesto quanto è fornito, ma nessun flag è "richiesto"
 Se si ottiene un errore come "_versione 'GLIBC_2. 8' non trovato (richiesta da Starship)_" quando si utilizza il binario precostruito (per esempio, su CentOS 6 o 7), puoi usare un binario compilato con `musl` invece di `glibc`:
 
 ```sh
-sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --platform unknown-linux-musl
+curl -sS https://starship.rs/install.sh | sh -s -- --platform unknown-linux-musl
 ```
 
 ## Why do I see `Executing command "..." timed out.` warnings?
 
-Starship executes different commands to get information to display in the prompt, for example the version of a program or the current git status. To make sure starship doesn't hang while trying to execute these commands we set a time limit, if a command takes longer than this limit starship will stop the execution of the command and output the above warning, this is expected behaviour. This time limit is configurable using the [`command_timeout` key](/config/#prompt) so if you want you can increase the time limit. You can also follow the debugging steps below to see which command is being slow and see if you can optimise it. Finally you can set the `STARSHIP_LOG` env var to `error` to hide these warnings.
+Starship executes different commands to get information to display in the prompt, for example the version of a program or the current git status. To make sure starship doesn't hang while trying to execute these commands we set a time limit, if a command takes longer than this limit starship will stop the execution of the command and output the above warning, this is expected behaviour. This time limit is configurable using the [`command_timeout`key](/config/#prompt) so if you want you can increase the time limit. You can also follow the debugging steps below to see which command is being slow and see if you can optimise it. Finally you can set the `STARSHIP_LOG` env var to `error` to hide these warnings.
 
 ## Vedo simboli che non capisco o mi aspetto, cosa significano?
 

@@ -1,10 +1,11 @@
-#![warn(clippy::disallowed_method)]
+#![warn(clippy::disallowed_methods)]
 
 use clap::crate_authors;
 use std::io;
+use std::thread::available_parallelism;
 use std::time::SystemTime;
 
-use clap::{AppSettings, IntoApp, Parser, Subcommand};
+use clap::{IntoApp, Parser, Subcommand};
 use clap_complete::{generate, Shell as CompletionShell};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -12,19 +13,15 @@ use starship::context::{Properties, Target};
 use starship::module::ALL_MODULES;
 use starship::*;
 
-fn long_version() -> &'static str {
-    let ver = Box::new(crate::shadow::clap_version());
-    Box::leak(ver).as_str()
-}
-
 #[derive(Parser, Debug)]
 #[clap(
     author=crate_authors!(),
     version=shadow::PKG_VERSION,
-    long_version=long_version(),
-    about="The cross-shell prompt for astronauts. ☄🌌️"
+    long_version=shadow::CLAP_LONG_VERSION,
+    about="The cross-shell prompt for astronauts. ☄🌌️",
+    subcommand_required=true,
+    arg_required_else_help=true,
 )]
-#[clap(setting(AppSettings::SubcommandRequiredElseHelp))]
 struct Cli {
     #[clap(subcommand)]
     command: Commands,
@@ -58,7 +55,7 @@ enum Commands {
     ///  Prints a specific prompt module
     Module {
         /// The name of the module to be printed
-        #[clap(required = true, required_unless_present = "list")]
+        #[clap(required_unless_present("list"))]
         name: Option<String>,
         /// List out all supported modules
         #[clap(short, long)]
@@ -88,7 +85,7 @@ enum Commands {
     /// Generate random session key
     Session,
     /// Prints time in milliseconds
-    #[clap(setting=AppSettings::Hidden)]
+    #[clap(hide = true)]
     Time,
     /// Prints timings of all active modules
     Timings(Properties),
@@ -100,6 +97,9 @@ enum Commands {
         #[clap(default_value = "disabled")]
         value: String,
     },
+    #[cfg(feature = "config-schema")]
+    /// Generate a schema for the starship configuration as JSON-schema
+    ConfigSchema,
 }
 
 fn main() {
@@ -107,8 +107,40 @@ fn main() {
     #[cfg(windows)]
     let _ = ansi_term::enable_ansi_support();
     logger::init();
+    init_global_threadpool();
 
-    let args = Cli::parse();
+    let args = match Cli::try_parse() {
+        Ok(args) => args,
+        Err(e) => {
+            // if the error is not printed to stderr, this means it was not really
+            // an error but rather some information is going to be listed, therefore
+            // we won't print the arguments passed
+            let is_info_only = !e.use_stderr();
+            // print the error and void panicking in case of stdout/stderr closing unexpectedly
+            let _ = e.print();
+            // if there was no mistake by the user and we're only going to display information,
+            // we won't put arguments or exit with non-zero code
+            let exit_code = if is_info_only {
+                0
+            } else {
+                // print the arguments
+                // avoid panicking in case of stderr closing
+                let mut stderr = io::stderr();
+                use io::Write;
+                let _ = writeln!(
+                    stderr,
+                    "\nNOTE:\n    passed arguments: {:?}",
+                    // collect into a vec to format args as a slice
+                    std::env::args().skip(1).collect::<Vec<_>>()
+                );
+                // clap exits with status 2 on error:
+                //  https://docs.rs/clap/latest/clap/struct.Error.html#method.exit
+                2
+            };
+
+            std::process::exit(exit_code);
+        }
+    };
     log::trace!("Parsed arguments: {:#?}", args);
 
     match args.command {
@@ -155,8 +187,9 @@ fn main() {
                 if let Some(value) = value {
                     configure::update_configuration(&name, &value)
                 }
-            } else {
-                configure::edit_configuration()
+            } else if let Err(reason) = configure::edit_configuration(None) {
+                eprintln!("Could not edit configuration: {}", reason);
+                std::process::exit(1);
             }
         }
         Commands::PrintConfig { default, name } => configure::print_configuration(default, &name),
@@ -175,7 +208,7 @@ fn main() {
         Commands::Timings(props) => print::timings(props),
         Commands::Completions { shell } => generate(
             shell,
-            &mut Cli::into_app(),
+            &mut Cli::command(),
             "starship",
             &mut io::stdout().lock(),
         ),
@@ -187,5 +220,23 @@ fn main() {
                 .map(char::from)
                 .collect::<String>()
         ),
+        #[cfg(feature = "config-schema")]
+        Commands::ConfigSchema => print::print_schema(),
     }
+}
+
+/// Initialize global `rayon` thread pool
+fn init_global_threadpool() {
+    // Allow overriding the number of threads
+    let num_threads = std::env::var("STARSHIP_NUM_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        // Default to the number of logical cores,
+        // but restrict the number of threads to 8
+        .unwrap_or_else(|| available_parallelism().map(usize::from).unwrap_or(1).min(8));
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build_global()
+        .expect("Failed to initialize worker thread pool");
 }

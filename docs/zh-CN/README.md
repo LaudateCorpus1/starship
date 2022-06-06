@@ -18,7 +18,7 @@ features:
 footer: ISC Licensed | Copyright © 2019-present Starship Contributors
 #Used for the description meta tag, for SEO
 metaTitle: "Starship：可用于各种 Shell 的提示符"
-description: Starship is the minimal, blazing fast, and extremely customizable prompt for any shell! Shows the information you need, while staying sleek and minimal. Quick installation available for Bash, Fish, ZSH, Ion, Tcsh, Elvish, Nu, Xonsh, Cmd, and PowerShell.
+description: Starship是一款轻量级、反应迅速、可自定义的高颜值终端！ Shows the information you need, while staying sleek and minimal. 可以为Bash、Fish、ZSH、Ion、Tcsh、Elvish、Nu、Xonsh、Cmd和PowerShell执行快速安装。
 ---
 
 <div class="center">
@@ -30,7 +30,7 @@ description: Starship is the minimal, blazing fast, and extremely customizable p
 
 ### 前置要求
 
-- A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal.
+- 安装并在你的终端启用 [Nerd Font](https://www.nerdfonts.com/) 。
 
 ### 快速安装
 
@@ -42,8 +42,9 @@ description: Starship is the minimal, blazing fast, and extremely customizable p
    使用 Shell 命令：
 
    ```sh
-   sh -c "$(curl -fsSL https://starship.rs/install.sh)"
+   curl -sS https://starship.rs/install.sh | sh
    ```
+
    自更新 Starship ，运行下面脚本 将会在不改动 Starship 配置文件的情况下升级版本
 
 
@@ -119,7 +120,11 @@ description: Starship is the minimal, blazing fast, and extremely customizable p
 
    #### Elvish
 
-   ::: warning Only elvish v0.17 or higher is supported. :::
+   ::: warning
+
+   Only elvish v0.18 or higher is supported.
+
+   :::
 
    在 `~/.config/fish/rc.elv` 的最后，添加以下内容：
 
@@ -143,21 +148,27 @@ description: Starship is the minimal, blazing fast, and extremely customizable p
 
    #### Nushell
 
-   ::: warning This will change in the future. Only nu version v0.33 or higher is supported. ::: Add the following to your nu config file. You can check the location of this file by running `config path` in nu.
+   ::: warning
 
-   ```toml
-   startup = [
-    "mkdir ~/.cache/starship",
-    "starship init nu | save ~/.cache/starship/init.nu",
-    "source ~/.cache/starship/init.nu"
-   ]
-   prompt = "starship_prompt"
+   This will change in the future. Only Nushell v0.61+ is supported.
+
+   :::
+
+   Add the following to to the end of your Nushell env file (find it by running `$nu.env-path` in Nushell):
+   ```sh
+   mkdir ~/.cache/starship
+   starship init nu | save ~/.cache/starship/init.nu
    ```
 
+   And add the following to the end of your Nushell configuration (find it by running `$nu.config-path`):
+
+   ```sh
+   source ~/.cache/starship/init.nu
+   ```
 
    #### Xonsh
 
-   Add the following to the end of `~/.xonshrc`:
+   在 `~/.bashhrc` 的最后，添加以下内容：
 
    ```sh
    # ~/.xonshrc

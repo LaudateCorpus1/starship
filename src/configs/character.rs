@@ -1,14 +1,16 @@
-use crate::config::ModuleConfig;
+use serde::{Deserialize, Serialize};
 
-use serde::Serialize;
-use starship_module_config_derive::ModuleConfig;
-
-#[derive(Clone, ModuleConfig, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "config-schema", derive(schemars::JsonSchema))]
+#[serde(default)]
 pub struct CharacterConfig<'a> {
     pub format: &'a str,
     pub success_symbol: &'a str,
     pub error_symbol: &'a str,
     pub vicmd_symbol: &'a str,
+    pub vimcmd_visual_symbol: &'a str,
+    pub vimcmd_replace_symbol: &'a str,
+    pub vimcmd_replace_one_symbol: &'a str,
     pub disabled: bool,
 }
 
@@ -19,6 +21,9 @@ impl<'a> Default for CharacterConfig<'a> {
             success_symbol: "[❯](bold green)",
             error_symbol: "[❯](bold red)",
             vicmd_symbol: "[❮](bold green)",
+            vimcmd_visual_symbol: "[❮](bold yellow)",
+            vimcmd_replace_symbol: "[❮](bold purple)",
+            vimcmd_replace_one_symbol: "[❮](bold purple)",
             disabled: false,
         }
     }

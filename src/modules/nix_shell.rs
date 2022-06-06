@@ -1,4 +1,4 @@
-use super::{Context, Module, RootModuleConfig};
+use super::{Context, Module, ModuleConfig};
 
 use crate::configs::nix_shell::NixShellConfig;
 use crate::formatter::StringFormatter;
@@ -9,8 +9,8 @@ use crate::formatter::StringFormatter;
 /// determine if it's inside a nix-shell and the name of it.
 ///
 /// The following options are availables:
-///     - impure_msg (string) // change the impure msg
-///     - pure_msg (string)   // change the pure msg
+///     - `impure_msg` (string) // change the impure msg
+///     - `pure_msg` (string)   // change the pure msg
 ///
 /// Will display the following:
 ///     - pure (name)    // $name == "name" in a pure nix-shell

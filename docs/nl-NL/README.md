@@ -42,8 +42,9 @@ description: Starship is the minimal, blazing fast, and extremely customizable p
    With Shell:
 
    ```sh
-   sh -c "$(curl -fsSL https://starship.rs/install.sh)"
+   curl -sS https://starship.rs/install.sh | sh
    ```
+
    Om Starship zelf bij te werken, voer je het bovenstaande script opnieuw uit. Deze vervangt de huidige versie zonder de configuratie van Starship aan te passen.
 
 
@@ -119,7 +120,11 @@ description: Starship is the minimal, blazing fast, and extremely customizable p
 
    #### Elvish
 
-   ::: warning Only elvish v0.17 or higher is supported. :::
+   ::: warning
+
+   Only elvish v0.18 or higher is supported.
+
+   :::
 
    Add the following to the end of `~/.elvish/rc.elv`:
 
@@ -143,17 +148,23 @@ description: Starship is the minimal, blazing fast, and extremely customizable p
 
    #### Nushell
 
-   ::: warning This will change in the future. ::: Add the following to your nu config file. De locatie van hiervan kunt u vinden door `config path` uit te voeren in nushell.
+   ::: warning
 
-   ```toml
-   startup = [
-    "mkdir ~/.cache/starship",
-    "starship init nu | save ~/.cache/starship/init.nu",
-    "source ~/.cache/starship/init.nu"
-   ]
-   prompt = "starship_prompt"
+   This will change in the future. Only Nushell v0.61+ is supported.
+
+   :::
+
+   Add the following to to the end of your Nushell env file (find it by running `$nu.env-path` in Nushell):
+   ```sh
+   mkdir ~/.cache/starship
+   starship init nu | save ~/.cache/starship/init.nu
    ```
 
+   And add the following to the end of your Nushell configuration (find it by running `$nu.config-path`):
+
+   ```sh
+   source ~/.cache/starship/init.nu
+   ```
 
    #### Xonsh
 

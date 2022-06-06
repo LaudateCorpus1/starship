@@ -1,4 +1,4 @@
-# FAQ
+# Frequently Asked Questions
 
 ## デモGIFで使用される構成は何ですか？
 
@@ -12,7 +12,7 @@
 
 ## デモのGIFのようにコマンド補完はどうしたら使用できますか？
 
-補完サポート、または自動補完は選択したシェルによって提供されます。 デモ中では、デフォルトの[Fish Shell](https://fishshell.com/)によって補完されています。 Z Shell (zsh) を利用しているのであれば、[zsh-autosuggestions](https://github.com/zsh-users/zsh-autosuggestions)を照参してください。
+補完サポート、または自動補完は選択したシェルによって提供されます。 デモ中では、デフォルトの[Fish Shell](https://fishshell.com/)によって補完されています。 Z Shell (zsh) を利用しているのであれば、[zsh-autosuggestions](https://github.com/zsh-users/zsh-autosuggestions)を参照してください。
 
 ## トップレベルの`format`と`<module>.disabled`は同じように動作しますか？
 
@@ -38,7 +38,7 @@ NUM_JOBS=$(jobs -p | wc -l)
 PS1="$(starship prompt --status=$STATUS --jobs=$NUM_JOBS)"
 ```
 
-Starshipに搭載されている[Bashの実装](https://github.com/starship/starship/blob/master/src/init/starship.bash)は、[Command Duration モジュール](https://starship.rs/config/#command-duration)のような高度な機能を可能にするためと、プリインストールされたBashの設定との互換性を確保するために、若干複雑になっています。
+Starshipに組み込まれた[Bashの実装](https://github.com/starship/starship/blob/master/src/init/starship.bash)は、[ Command Durationモジュール](https://starship.rs/config/#command-duration)などの高度な機能を可能にし、Starshipが事前にインストールされたBash構成と互換性があるようにするため、少し複雑です。
 
 `Starshipのプロンプト`で受け入れられるすべてのフラグのリストは、次のコマンドを取得できます。
 
@@ -53,12 +53,12 @@ starship prompt --help
 CentOS6や7などで事前にビルドされたバイナリを使用していて、"_version 'GLIBC_2.18' not found (required by starship)_" のようなエラーが出た場合、`glibc`の替わりに `musl`でコンパイルされたバイナリを使用できます。
 
 ```sh
-sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --platform unknown-linux-musl
+curl -sS https://starship.rs/install.sh | sh -s -- --platform unknown-linux-musl
 ```
 
 ## Why do I see `Executing command "..." timed out.` warnings?
 
-Starship executes different commands to get information to display in the prompt, for example the version of a program or the current git status. To make sure starship doesn't hang while trying to execute these commands we set a time limit, if a command takes longer than this limit starship will stop the execution of the command and output the above warning, this is expected behaviour. This time limit is configurable using the [`command_timeout` key](/config/#prompt) so if you want you can increase the time limit. You can also follow the debugging steps below to see which command is being slow and see if you can optimise it. Finally you can set the `STARSHIP_LOG` env var to `error` to hide these warnings.
+Starship executes different commands to get information to display in the prompt, for example the version of a program or the current git status. To make sure starship doesn't hang while trying to execute these commands we set a time limit, if a command takes longer than this limit starship will stop the execution of the command and output the above warning, this is expected behaviour. This time limit is configurable using the [`command_timeout`key](/config/#prompt) so if you want you can increase the time limit. You can also follow the debugging steps below to see which command is being slow and see if you can optimise it. Finally you can set the `STARSHIP_LOG` env var to `error` to hide these warnings.
 
 ## よくわからない記号を見つけました。これはどういった意味ですか？
 
