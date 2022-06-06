@@ -1,9 +1,8 @@
-use crate::config::ModuleConfig;
+use serde::{Deserialize, Serialize};
 
-use serde::Serialize;
-use starship_module_config_derive::ModuleConfig;
-
-#[derive(Clone, ModuleConfig, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "config-schema", derive(schemars::JsonSchema))]
+#[serde(default)]
 pub struct CmdDurationConfig<'a> {
     pub min_time: i64,
     pub format: &'a str,
@@ -12,6 +11,9 @@ pub struct CmdDurationConfig<'a> {
     pub disabled: bool,
     pub show_notifications: bool,
     pub min_time_to_notify: i64,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notification_timeout: Option<u32>,
 }
 
 impl<'a> Default for CmdDurationConfig<'a> {
@@ -24,6 +26,7 @@ impl<'a> Default for CmdDurationConfig<'a> {
             disabled: false,
             show_notifications: false,
             min_time_to_notify: 45_000,
+            notification_timeout: None,
         }
     }
 }

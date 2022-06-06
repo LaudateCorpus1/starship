@@ -62,7 +62,7 @@ pub struct StringFormatter<'a> {
 }
 
 impl<'a> StringFormatter<'a> {
-    /// Creates an instance of StringFormatter from a format string
+    /// Creates an instance of `StringFormatter` from a format string
     ///
     /// This method will throw an Error when the given format string fails to parse.
     pub fn new(format: &'a str) -> Result<Self, StringFormatterError> {
@@ -88,7 +88,7 @@ impl<'a> StringFormatter<'a> {
         })
     }
 
-    /// A StringFormatter that does no formatting, parse just returns the raw text
+    /// A `StringFormatter` that does no formatting, parse just returns the raw text
     pub fn raw(text: &'a str) -> Self {
         Self {
             format: vec![FormatElement::Text(text.into())],
@@ -111,6 +111,7 @@ impl<'a> StringFormatter<'a> {
     ///
     /// - `Some(Ok(_))`: The value of this variable will be displayed in the format string.
     ///
+    #[must_use]
     pub fn map<T, M>(mut self, mapper: M) -> Self
     where
         T: Into<Cow<'a, str>>,
@@ -131,6 +132,7 @@ impl<'a> StringFormatter<'a> {
     ///
     /// See `StringFormatter::map` for description on the parameters.
     ///
+    #[must_use]
     pub fn map_no_escaping<T, M>(mut self, mapper: M) -> Self
     where
         T: Into<Cow<'a, str>>,
@@ -152,6 +154,7 @@ impl<'a> StringFormatter<'a> {
     /// the format strings of meta-variables can be cached properly.
     ///
     /// See `StringFormatter::map` for description on the parameters.
+    #[must_use]
     pub fn map_meta<M>(mut self, mapper: M) -> Self
     where
         M: Fn(&str, &BTreeSet<String>) -> Option<&'a str> + Sync,
@@ -193,6 +196,7 @@ impl<'a> StringFormatter<'a> {
     /// Maps variable name to an array of segments
     ///
     /// See `StringFormatter::map` for description on the parameters.
+    #[must_use]
     pub fn map_variables_to_segments<M>(mut self, mapper: M) -> Self
     where
         M: Fn(&str) -> Option<Result<Vec<Segment>, StringFormatterError>> + Sync,
@@ -209,6 +213,7 @@ impl<'a> StringFormatter<'a> {
     /// Maps variable name in a style string to its value
     ///
     /// See `StringFormatter::map` for description on the parameters.
+    #[must_use]
     pub fn map_style<T, M>(mut self, mapper: M) -> Self
     where
         T: Into<Cow<'a, str>>,
@@ -287,7 +292,16 @@ impl<'a> StringFormatter<'a> {
                 .into_iter()
                 .map(|el| {
                     match el {
-                        FormatElement::Text(text) => Ok(Segment::from_text(style, text)),
+                        FormatElement::Text(text) => Ok(Segment::from_text(
+                            style,
+                            shell_prompt_escape(
+                                text,
+                                match context {
+                                    None => Shell::Unknown,
+                                    Some(c) => c.shell,
+                                },
+                            ),
+                        )),
                         FormatElement::TextGroup(textgroup) => {
                             let textgroup = TextGroup {
                                 format: textgroup.format,

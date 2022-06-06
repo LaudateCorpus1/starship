@@ -1,4 +1,4 @@
-# 常見問答
+# Frequently Asked Questions
 
 ## 主頁示例圖中的效果是使用哪些配置達成的？
 
@@ -53,12 +53,12 @@ Starship prompt 會盡可能的使用被提供的上下文參數，但使用者�
 如果在你使用的環境 (比如：CentOS 6 或 7) 下使用預編好的 Starship 執行檔時會產生一些像 "_version 'GLIBC_2.18' not found (required by starship)_" 的內容，你可以在執行安裝指令時嘗試選用不同的函式庫預先編譯而成的 Starship 版本，比如說 `musl` 而非 `glibc`，如下所示：
 
 ```sh
-sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --platform unknown-linux-musl
+curl -sS https://starship.rs/install.sh | sh -s -- --platform unknown-linux-musl
 ```
 
 ## Why do I see `Executing command "..." timed out.` warnings?
 
-Starship executes different commands to get information to display in the prompt, for example the version of a program or the current git status. To make sure starship doesn't hang while trying to execute these commands we set a time limit, if a command takes longer than this limit starship will stop the execution of the command and output the above warning, this is expected behaviour. This time limit is configurable using the [`command_timeout` key](/config/#prompt) so if you want you can increase the time limit. You can also follow the debugging steps below to see which command is being slow and see if you can optimise it. Finally you can set the `STARSHIP_LOG` env var to `error` to hide these warnings.
+Starship executes different commands to get information to display in the prompt, for example the version of a program or the current git status. To make sure starship doesn't hang while trying to execute these commands we set a time limit, if a command takes longer than this limit starship will stop the execution of the command and output the above warning, this is expected behaviour. This time limit is configurable using the [`command_timeout`key](/config/#prompt) so if you want you can increase the time limit. You can also follow the debugging steps below to see which command is being slow and see if you can optimise it. Finally you can set the `STARSHIP_LOG` env var to `error` to hide these warnings.
 
 ## 我發現一些看不懂或意料外的符號，那是代表什麼意思？
 

@@ -1,23 +1,24 @@
+use ini::Ini;
 use once_cell::sync::{Lazy, OnceCell};
-use std::ops::Deref;
+use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
 
-use super::{Context, Module, RootModuleConfig};
+use super::{Context, Module, ModuleConfig};
 
 use crate::configs::gcloud::GcloudConfig;
 use crate::formatter::StringFormatter;
 use crate::utils;
 
-type Account = (String, Option<String>);
+type Account<'a> = (&'a str, Option<&'a str>);
 
 struct GcloudContext {
     config_name: String,
     config_path: PathBuf,
-    config: OnceCell<String>,
+    config: OnceCell<Option<Ini>>,
 }
 
-impl GcloudContext {
+impl<'a> GcloudContext {
     pub fn new(config_name: &str, config_path: &Path) -> Self {
         Self {
             config_name: config_name.to_string(),
@@ -26,54 +27,27 @@ impl GcloudContext {
         }
     }
 
-    fn get_config(&self) -> Option<&str> {
-        let config = self
-            .config
-            .get_or_try_init(|| utils::read_file(&self.config_path));
-        match config {
-            Ok(data) => Some(data),
-            Err(_) => None,
-        }
+    fn get_config(&self) -> Option<&Ini> {
+        self.config
+            .get_or_init(|| Ini::load_from_file(&self.config_path).ok())
+            .as_ref()
     }
 
-    pub fn get_account(&self) -> Option<Account> {
+    pub fn get_account(&'a self) -> Option<Account<'a>> {
         let config = self.get_config()?;
-        let account_line = config
-            .lines()
-            .skip_while(|line| *line != "[core]")
-            .skip(1)
-            .take_while(|line| !line.starts_with('['))
-            .find(|line| line.starts_with("account"))?;
-        let account = account_line.split_once('=')?.1.trim();
+        let account = config.section(Some("core"))?.get("account")?;
         let mut segments = account.splitn(2, '@');
-        Some((
-            segments.next().map(String::from)?,
-            segments.next().map(String::from),
-        ))
+        Some((segments.next()?, segments.next()))
     }
 
-    pub fn get_project(&self) -> Option<String> {
+    pub fn get_project(&'a self) -> Option<&'a str> {
         let config = self.get_config()?;
-        let project_line = config
-            .lines()
-            .skip_while(|line| *line != "[core]")
-            .skip(1)
-            .take_while(|line| !line.starts_with('['))
-            .find(|line| line.starts_with("project"))?;
-        let project = project_line.split_once('=')?.1.trim();
-        Some(project.to_string())
+        config.section(Some("core"))?.get("project")
     }
 
-    pub fn get_region(&self) -> Option<String> {
+    pub fn get_region(&'a self) -> Option<&'a str> {
         let config = self.get_config()?;
-        let region_line = config
-            .lines()
-            .skip_while(|line| *line != "[compute]")
-            .skip(1)
-            .take_while(|line| !line.starts_with('['))
-            .find(|line| line.starts_with("region"))?;
-        let region = region_line.split_once('=')?.1.trim();
-        Some(region.to_string())
+        config.section(Some("compute"))?.get("region")
     }
 }
 
@@ -112,7 +86,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
 
     let (config_name, config_path) = get_current_config(context)?;
     let gcloud_context = GcloudContext::new(&config_name, &config_path);
-    let account: Lazy<Option<Account>, _> = Lazy::new(|| gcloud_context.get_account());
+    let account: Lazy<Option<Account<'_>>, _> = Lazy::new(|| gcloud_context.get_account());
 
     let parsed = StringFormatter::new(config.format).and_then(|formatter| {
         formatter
@@ -126,29 +100,31 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
             })
             .map(|variable| match variable {
                 "account" => account
-                    .deref()
-                    .as_ref()
-                    .map(|(account, _)| (*account).clone())
+                    .map(|(account, _)| account)
+                    .map(Cow::Borrowed)
                     .map(Ok),
                 "domain" => account
-                    .deref()
-                    .as_ref()
-                    .and_then(|(_, domain)| (*domain).clone())
+                    .and_then(|(_, domain)| domain)
+                    .map(Cow::Borrowed)
                     .map(Ok),
                 "region" => gcloud_context
                     .get_region()
-                    .map(|region| {
-                        config
-                            .region_aliases
-                            .get(&region)
-                            .map_or(region, |alias| (*alias).to_owned())
-                    })
+                    .map(|region| config.region_aliases.get(region).copied().unwrap_or(region))
+                    .map(Cow::Borrowed)
                     .map(Ok),
                 "project" => context
                     .get_env("CLOUDSDK_CORE_PROJECT")
-                    .or_else(|| gcloud_context.get_project())
+                    .map(Cow::Owned)
+                    .or_else(|| gcloud_context.get_project().map(Cow::Borrowed))
+                    .map(|project| {
+                        config
+                            .project_aliases
+                            .get(project.as_ref())
+                            .copied()
+                            .map_or(project, Cow::Borrowed)
+                    })
                     .map(Ok),
-                "active" => Some(Ok(gcloud_context.config_name.clone())),
+                "active" => Some(Ok(Cow::Borrowed(&gcloud_context.config_name))),
                 _ => None,
             })
             .parse(None, Some(context))
@@ -380,6 +356,38 @@ project = abc
             "on {} ",
             Color::Blue.bold().paint("☁️  env_project")
         ));
+
+        assert_eq!(actual, expected);
+        dir.close()
+    }
+
+    #[test]
+    fn project_set_with_alias() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let active_config_path = dir.path().join("active_config");
+        let mut active_config_file = File::create(&active_config_path)?;
+        active_config_file.write_all(b"default")?;
+
+        create_dir(dir.path().join("configurations"))?;
+        let config_default_path = dir.path().join("configurations").join("config_default");
+        let mut config_default_file = File::create(&config_default_path)?;
+        config_default_file.write_all(
+            b"\
+[core]
+project = very-long-project-name
+",
+        )?;
+
+        let actual = ModuleRenderer::new("gcloud")
+            .env("CLOUDSDK_CONFIG", dir.path().to_string_lossy())
+            .config(toml::toml! {
+                [gcloud]
+                format = "on [$symbol$project]($style) "
+                [gcloud.project_aliases]
+                very-long-project-name = "vlpn"
+            })
+            .collect();
+        let expected = Some(format!("on {} ", Color::Blue.bold().paint("☁️  vlpn")));
 
         assert_eq!(actual, expected);
         dir.close()

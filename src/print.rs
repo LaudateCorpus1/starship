@@ -75,7 +75,7 @@ pub fn get_prompt(context: Context) -> String {
 
     // A workaround for a fish bug (see #739,#279). Applying it to all shells
     // breaks things (see #808,#824,#834). Should only be printed in fish.
-    if let Shell::Fish = context.shell {
+    if Shell::Fish == context.shell && context.target == Target::Main {
         buf.push_str("\x1b[J"); // An ASCII control code to clear screen
     }
 
@@ -125,7 +125,7 @@ pub fn get_prompt(context: Context) -> String {
     }
 
     // escape \n and ! characters for tcsh
-    if let Shell::Tcsh = context.shell {
+    if context.shell == Shell::Tcsh {
         buf = buf.replace('!', "\\!");
         // space is required before newline
         buf = buf.replace('\n', " \\n");
@@ -444,6 +444,12 @@ fn load_formatter_and_modules<'a>(context: &'a Context) -> (StringFormatter<'a>,
     }
 }
 
+#[cfg(feature = "config-schema")]
+pub fn print_schema() {
+    let schema = schemars::schema_for!(crate::configs::FullConfig);
+    println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -482,5 +488,11 @@ mod test {
         let expected = String::from("><>");
         let actual = get_prompt(context);
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    #[cfg(feature = "config-schema")]
+    fn print_schema_does_not_panic() {
+        print_schema();
     }
 }

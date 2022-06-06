@@ -42,8 +42,9 @@ description: Starship ist eine minimale, super schnelle, und extrem anpassbare P
    Mit Shell:
 
    ```sh
-   sh -c "$(curl -fsSL https://starship.rs/install.sh)"
+   curl -sS https://starship.rs/install.sh | sh
    ```
+
    Um Starship selbst zu aktualisieren, lasse das Skript oben nochmal laufen. Es wird die vorhandene Version ersetzen, ohne die Konfiguration von Starship zu berühren.
 
 
@@ -61,12 +62,12 @@ description: Starship ist eine minimale, super schnelle, und extrem anpassbare P
    scoop install starship
    ```
 
-1. Füge das init-Skript zur Konfigurationsdatei deiner Shell hinzu:
+1. Führe den init Befehl zum Start der Shell aus:
 
 
    #### Bash
 
-   Trage folgendes am Ende der `~/.bashrc` ein:
+   Füge dies ans Ende von `~/.bashrc`:
 
    ```sh
    # ~/.bashrc
@@ -88,7 +89,7 @@ description: Starship ist eine minimale, super schnelle, und extrem anpassbare P
 
    #### Zsh
 
-   Trage folgendes am Ende der `~/.zshrc` ein:
+   Füge dies ans Ende von `~/.zshrc`:
 
    ```sh
    # ~/.zshrc
@@ -119,7 +120,11 @@ description: Starship ist eine minimale, super schnelle, und extrem anpassbare P
 
    #### Elvish
 
-   ::: warning Only elvish v0.17 or higher is supported. :::
+   ::: warning
+
+   Only elvish v0.18 or higher is supported.
+
+   :::
 
    Trage folgendes am Ende von `~/.config/fish/rc.elv` ein:
 
@@ -143,17 +148,23 @@ description: Starship ist eine minimale, super schnelle, und extrem anpassbare P
 
    #### Nushell
 
-   ::: warning Dies wird sich in der Zukunft ändern. Es wird nur nu Version v0.33 oder höher unterstützt. ::: Füge Folgendes zu deiner nu Konfigurationsdatei hinzu. Du kannst den Speicherort dieser Datei überprüfen, indem du `config path` in nu ausführst.
+   ::: warning
 
-   ```toml
-   startup = [
-    "mkdir ~/.cache/starship",
-    "starship init nu | save ~/.cache/starship/init.nu",
-    "source ~/.cache/starship/init.nu"
-   ]
-   prompt = "starship_prompt"
+   This will change in the future. Only Nushell v0.61+ is supported.
+
+   :::
+
+   Add the following to to the end of your Nushell env file (find it by running `$nu.env-path` in Nushell):
+   ```sh
+   mkdir ~/.cache/starship
+   starship init nu | save ~/.cache/starship/init.nu
    ```
 
+   And add the following to the end of your Nushell configuration (find it by running `$nu.config-path`):
+
+   ```sh
+   source ~/.cache/starship/init.nu
+   ```
 
    #### Xonsh
 
@@ -166,7 +177,7 @@ description: Starship ist eine minimale, super schnelle, und extrem anpassbare P
    ```
 
 
-   #### Cmd
+   #### ⌘ Cmd
 
    You need to use [Clink](https://chrisant996.github.io/clink/clink.html) (v1.2.30+) with Cmd. Add the following to a file `starship.lua` and place this file in Clink scripts directory:
 

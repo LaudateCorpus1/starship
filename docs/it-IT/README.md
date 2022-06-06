@@ -42,12 +42,13 @@ description: Starship è il prompt minimalista, super veloce ed estremamente per
    Con Shell:
 
    ```sh
-   sh -c "$(curl -fsSL https://starship.rs/install.sh)"
+   curl -sS https://starship.rs/install.sh | sh
    ```
+
    Per aggiornare Starship stesso, riavviare lo script sopra. Sostituirà la versione corrente senza toccare la configurazione di Starship.
 
 
-   #### Installa con Package Manager
+   #### Installa via Package Manager
 
    Con [Homebrew](https://brew.sh/):
 
@@ -99,7 +100,7 @@ description: Starship è il prompt minimalista, super veloce ed estremamente per
 
    #### Powershell
 
-   Aggiungi quanto segue alla fine di `Microsoft.PowerShell_profile.ps1`. Puoi controllare la posizione di questo file interrogando la variabile `$PROFILE` in PowerShell. In genere il percorso è `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` oppure `~/.config/powershell/Microsoft.PowerShell_profile.ps1` in -Nix.
+   Aggiungi quanto segue alla fine di `Microsoft.PowerShell_profile.ps1`. Puoi controllare la posizione di questo file interrogando la variabile `$PROFILE` in PowerShell. Tipicamente il percorso è `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` oppure `~/.config/powershell/Microsoft.PowerShell_profile.ps1` su -Nix.
 
    ```sh
    Invoke-Expression (&starship init powershell)
@@ -119,7 +120,11 @@ description: Starship è il prompt minimalista, super veloce ed estremamente per
 
    #### Elvish
 
-   ::: warning Only elvish v0.17 or higher is supported. :::
+   ::: warning
+
+   Only elvish v0.18 or higher is supported.
+
+   :::
 
    Aggiungi quanto segue alla fine di `~/.elvish/rc.elv`:
 
@@ -143,17 +148,23 @@ description: Starship è il prompt minimalista, super veloce ed estremamente per
 
    #### Nushell
 
-   ::: warning Questo cambierà in futuro. È supportata solo la versione v0.33 o superiore. ::: Aggiungi quanto segue al tuo file di configurazione nu. Puoi controllare la posizione di questo file eseguendo `percorso di configurazione` in nu.
+   ::: warning
 
-   ```toml
-   startup = [
-    "mkdir ~/.cache/starship",
-    "starship init nu | save ~/.cache/starship/init.nu",
-    "source ~/.cache/starship/init.nu"
-   ]
-   prompt = "starship_prompt"
+   This will change in the future. Only Nushell v0.61+ is supported.
+
+   :::
+
+   Add the following to to the end of your Nushell env file (find it by running `$nu.env-path` in Nushell):
+   ```sh
+   mkdir ~/.cache/starship
+   starship init nu | save ~/.cache/starship/init.nu
    ```
 
+   And add the following to the end of your Nushell configuration (find it by running `$nu.config-path`):
+
+   ```sh
+   source ~/.cache/starship/init.nu
+   ```
 
    #### Xonsh
 

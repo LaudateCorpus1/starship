@@ -1,7 +1,7 @@
-use crate::config::{RootModuleConfig, StarshipConfig};
+use crate::config::{ModuleConfig, StarshipConfig};
 use crate::configs::StarshipRootConfig;
 use crate::module::Module;
-use crate::utils::{create_command, exec_timeout, CommandOutput};
+use crate::utils::{create_command, exec_timeout, read_file, CommandOutput};
 
 use crate::modules;
 use crate::utils::{self, home_dir};
@@ -18,6 +18,7 @@ use std::fs;
 use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::string::String;
 use std::time::{Duration, Instant};
 use terminal_size::terminal_size;
@@ -136,9 +137,9 @@ impl<'a> Context<'a> {
         }
 
         // Canonicalize the current path to resolve symlinks, etc.
-        // NOTE: On Windows this converts the path to extended-path syntax.
+        // NOTE: On Windows this may convert the path to extended-path syntax.
         let current_dir = Context::expand_tilde(path);
-        let current_dir = current_dir.canonicalize().unwrap_or(current_dir);
+        let current_dir = dunce::canonicalize(&current_dir).unwrap_or(current_dir);
         let logical_dir = logical_path;
 
         let root_config = config
@@ -259,7 +260,8 @@ impl<'a> Context<'a> {
             let repository = if env::var("GIT_DIR").is_ok() {
                 Repository::open_from_env()
             } else {
-                Repository::discover(&self.current_dir)
+                let dirs: [PathBuf; 0] = [];
+                Repository::open_ext(&self.current_dir, git2::RepositoryOpenFlags::FROM_ENV, dirs)
             }?;
             Ok(Repo {
                 branch: get_current_branch(&repository),
@@ -333,6 +335,25 @@ impl<'a> Context<'a> {
             &mut cmd,
             Duration::from_millis(self.root_config.command_timeout),
         )
+    }
+
+    /// Attempt to execute several commands with `exec_cmd`, return the results of the first that works
+    pub fn exec_cmds_return_first(&self, commands: Vec<Vec<&str>>) -> Option<CommandOutput> {
+        commands
+            .iter()
+            .find_map(|attempt| self.exec_cmd(attempt[0], &attempt[1..]))
+    }
+
+    /// Returns the string contents of a file from the current working directory
+    pub fn read_file_from_pwd(&self, file_name: &str) -> Option<String> {
+        if !self.try_begin_scan()?.set_files(&[file_name]).is_match() {
+            log::debug!(
+                "Not attempting to read {file_name} because, it was not found during scan."
+            );
+            return None;
+        }
+
+        read_file(self.current_dir.join(file_name)).ok()
     }
 }
 
@@ -474,22 +495,25 @@ pub struct ScanDir<'a> {
 }
 
 impl<'a> ScanDir<'a> {
+    #[must_use]
     pub const fn set_files(mut self, files: &'a [&'a str]) -> Self {
         self.files = files;
         self
     }
 
+    #[must_use]
     pub const fn set_extensions(mut self, extensions: &'a [&'a str]) -> Self {
         self.extensions = extensions;
         self
     }
 
+    #[must_use]
     pub const fn set_folders(mut self, folders: &'a [&'a str]) -> Self {
         self.folders = folders;
         self
     }
 
-    /// based on the current PathBuf check to see
+    /// based on the current `PathBuf` check to see
     /// if any of this criteria match or exist and returning a boolean
     pub fn is_match(&self) -> bool {
         self.dir_contents.has_any_extension(self.extensions)
@@ -575,7 +599,7 @@ pub enum Target {
 /// Properties as passed on from the shell as arguments
 #[derive(Parser, Debug)]
 pub struct Properties {
-    /// The status code of the previously run command
+    /// The status code of the previously run command as an unsigned or signed 32bit integer
     #[clap(short = 's', long = "status")]
     pub status_code: Option<String>,
     /// Bash, Fish and Zsh support returning codes for each process in a pipeline.
@@ -604,7 +628,7 @@ pub struct Properties {
 
 impl Default for Properties {
     fn default() -> Self {
-        Properties {
+        Self {
             status_code: None,
             pipestatus: None,
             terminal_width: default_width(),
@@ -617,8 +641,17 @@ impl Default for Properties {
     }
 }
 
+/// Parse String, but treat empty strings as `None`
+fn parse_trim<F: FromStr>(value: &str) -> Option<Result<F, F::Err>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    Some(F::from_str(value))
+}
+
 fn parse_jobs(jobs: &str) -> Result<i64, ParseIntError> {
-    jobs.trim().parse::<i64>()
+    parse_trim(jobs).unwrap_or(Ok(0))
 }
 
 fn default_width() -> usize {
@@ -626,10 +659,7 @@ fn default_width() -> usize {
 }
 
 fn parse_width(width: &str) -> Result<usize, ParseIntError> {
-    if width.is_empty() {
-        return Ok(default_width());
-    }
-    width.trim().parse::<usize>()
+    parse_trim(width).unwrap_or_else(|| Ok(default_width()))
 }
 
 #[cfg(test)]
@@ -727,10 +757,8 @@ mod tests {
 
         assert_ne!(context.current_dir, context.logical_dir);
 
-        let expected_current_dir = path_actual
-            .join("yyy")
-            .canonicalize()
-            .expect("canonicalize");
+        let expected_current_dir =
+            dunce::canonicalize(path_actual.join("yyy")).expect("canonicalize");
         assert_eq!(expected_current_dir, context.current_dir);
 
         let expected_logical_dir = test_path;
@@ -779,5 +807,22 @@ mod tests {
 
         let expected_logical_dir = test_path;
         assert_eq!(expected_logical_dir, context.logical_dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn strip_extended_path_prefix() {
+        let test_path = Path::new(r"\\?\C:\").to_path_buf();
+        let context = Context::new_with_shell_and_path(
+            Properties::default(),
+            Shell::Unknown,
+            Target::Main,
+            test_path.clone(),
+            test_path,
+        );
+
+        let expected_path = Path::new(r"C:\");
+
+        assert_eq!(&context.current_dir, expected_path);
     }
 }

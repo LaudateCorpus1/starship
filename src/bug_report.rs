@@ -1,13 +1,12 @@
 use crate::shadow;
 use crate::utils::{self, exec_cmd};
 
-use directories_next::ProjectDirs;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 
 pub fn create() {
-    println!("{}\n", shadow::version().trim());
+    println!("{}\n", shadow::VERSION.trim());
     let os_info = os_info::get();
 
     let environment = Environment {
@@ -142,10 +141,7 @@ fn get_shell_info() -> ShellInfo {
 
     let shell = shell.unwrap();
 
-    let version = exec_cmd(&shell, &["--version"], Duration::from_millis(500)).map_or_else(
-        || UNKNOWN_VERSION.to_string(),
-        |output| output.stdout.trim().to_string(),
-    );
+    let version = get_shell_version(&shell);
 
     let config = get_config_path(&shell)
         .and_then(|config_path| fs::read_to_string(config_path).ok())
@@ -184,8 +180,8 @@ fn get_terminal_info() -> TerminalInfo {
 
 fn get_config_path(shell: &str) -> Option<PathBuf> {
     if shell == "nu" {
-        return ProjectDirs::from("org", "nushell", "nu")
-            .map(|project_dirs| project_dirs.config_dir().join("config.toml"));
+        return dirs_next::config_dir()
+            .map(|config_dir| config_dir.join("nushell").join("config.nu"));
     }
 
     utils::home_dir().and_then(|home_dir| {
@@ -223,6 +219,22 @@ fn get_starship_config() -> String {
         })
         .and_then(|config_path| fs::read_to_string(config_path).ok())
         .unwrap_or_else(|| UNKNOWN_CONFIG.to_string())
+}
+
+fn get_shell_version(shell: &str) -> String {
+    let time_limit = Duration::from_millis(500);
+    match shell {
+        "powershell" => exec_cmd(
+            &shell,
+            &["(Get-Host | Select Version | Format-Table -HideTableHeaders | Out-String).trim()"],
+            time_limit,
+        ),
+        _ => exec_cmd(&shell, &["--version"], time_limit),
+    }
+    .map_or_else(
+        || UNKNOWN_VERSION.to_string(),
+        |output| output.stdout.trim().to_string(),
+    )
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use super::{Context, Module, RootModuleConfig};
+use super::{Context, Module, ModuleConfig};
 use crate::formatter::string_formatter::StringFormatterError;
 use git2::Time;
 
@@ -93,8 +93,7 @@ fn id_to_hex_abbrev(bytes: &[u8], len: usize) -> String {
     bytes
         .iter()
         .map(|b| format!("{:02x}", b))
-        .collect::<Vec<String>>()
-        .join("")
+        .collect::<String>()
         .chars()
         .take(len)
         .collect()

@@ -28,9 +28,9 @@ description: Starship - минимальная, быстрая и бесконе
   </video>
 </div>
 
-### Требования
+### Обязательные требования
 
-- A [Nerd Font](https://www.nerdfonts.com/) installed and enabled in your terminal.
+- Установленный и включенный шрифт [Nerd Font](https://www.nerdfonts.com/) в вашем терминале.
 
 ### Быстрая установка
 
@@ -42,8 +42,9 @@ description: Starship - минимальная, быстрая и бесконе
    Через Bash:
 
    ```sh
-   sh -c "$(curl -fsSL https://starship.rs/install.sh)"
+   curl -sS https://starship.rs/install.sh | sh
    ```
+
    Для обновления Starship перезапустите этот скрипт. Он заменит текущую версию без изменения конфигурации.
 
 
@@ -99,7 +100,7 @@ description: Starship - минимальная, быстрая и бесконе
 
    #### PowerShell
 
-   Добавьте следующее в конец `Microsoft.PowerShell_profile.ps1`. Вы можете проверить местоположение этого файла, запросив переменную `$PROFILE` в PowerShell. Обычно он находится в `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` или `~/.config/powershell/Microsoft.PowerShell_profile.ps1` на -Nix.
+   Добавьте следующее в конец `Microsoft.PowerShell_profile.ps1`. Вы можете узнать расположение этого файла, запросив переменную `$PROFILE` в PowerShell. Обычно он находится в `~\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` или `~/.config/powershell/Microsoft.PowerShell_profile.ps1` на -Nix.
 
    ```sh
    Invoke-Expression (&starship init powershell)
@@ -119,7 +120,11 @@ description: Starship - минимальная, быстрая и бесконе
 
    #### Elvish
 
-   ::: warning Only elvish v0.17 or higher is supported. :::
+   ::: warning
+
+   Only elvish v0.18 or higher is supported.
+
+   :::
 
    Добавьте следующую строку в конец `~/.elvish/rc.elv`:
 
@@ -143,21 +148,27 @@ description: Starship - минимальная, быстрая и бесконе
 
    #### Nushell
 
-   ::: warning This will change in the future. Only nu version v0.33 or higher is supported. ::: Add the following to your nu config file. You can check the location of this file by running `config path` in nu.
+   ::: warning
 
-   ```toml
-   startup = [
-    "mkdir ~/.cache/starship",
-    "starship init nu | save ~/.cache/starship/init.nu",
-    "source ~/.cache/starship/init.nu"
-   ]
-   prompt = "starship_prompt"
+   This will change in the future. Only Nushell v0.61+ is supported.
+
+   :::
+
+   Add the following to to the end of your Nushell env file (find it by running `$nu.env-path` in Nushell):
+   ```sh
+   mkdir ~/.cache/starship
+   starship init nu | save ~/.cache/starship/init.nu
    ```
 
+   And add the following to the end of your Nushell configuration (find it by running `$nu.config-path`):
+
+   ```sh
+   source ~/.cache/starship/init.nu
+   ```
 
    #### Xonsh
 
-   Add the following to the end of `~/.xonshrc`:
+   Добавьте следующее в конец `~/.xonshrc`:
 
    ```sh
    # ~/.xonshrc

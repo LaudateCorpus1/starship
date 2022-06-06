@@ -1,6 +1,6 @@
-# 🚀 Instalação Avançada
+# Instalação Avançada
 
-Para instalar o Starship, você precisa de duas coisas:
+Para instalar o starship, você precisa de duas coisas:
 
 1. O binário do **Starship** em seu computador
 1. Altere seu shell para usar o binário do starship como seu prompt alterando os scripts init
@@ -32,7 +32,7 @@ pkg install getconf
 ### Instalação
 
 ```sh
-sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --bin-dir /data/data/com.termux/files/usr/bin
+curl -sS https://starship.rs/install.sh | sh -s -- --bin-dir /data/data/com.termux/files/usr/bin
 ```
 
 ## [Funtoo Linux](https://www.funtoo.org/Welcome)
@@ -63,8 +63,7 @@ Ative o modulo `programs.starship` em seu arquivo `home.nix`, e adicione suas co
 {
   programs.starship = {
     enable = true;
-    enableZshIntegration = true;
-    # Configuration written to ~/.config/starship.toml
+    # Configuração gravada em ~/.config/starship.toml
     settings = {
       # add_newline = false;
 

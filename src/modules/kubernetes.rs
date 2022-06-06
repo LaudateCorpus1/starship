@@ -1,14 +1,21 @@
 use yaml_rust::YamlLoader;
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::env;
 use std::path;
 
-use super::{Context, Module, RootModuleConfig};
+use super::{Context, Module, ModuleConfig};
 
 use crate::configs::kubernetes::KubernetesConfig;
 use crate::formatter::StringFormatter;
 use crate::utils;
+
+struct KubeCtxComponents {
+    user: Option<String>,
+    namespace: Option<String>,
+    cluster: Option<String>,
+}
 
 fn get_kube_context(filename: path::PathBuf) -> Option<String> {
     let contents = utils::read_file(filename).ok()?;
@@ -27,7 +34,10 @@ fn get_kube_context(filename: path::PathBuf) -> Option<String> {
     Some(current_ctx.to_string())
 }
 
-fn get_kube_ns(filename: path::PathBuf, current_ctx: String) -> Option<String> {
+fn get_kube_ctx_component(
+    filename: path::PathBuf,
+    current_ctx: String,
+) -> Option<KubeCtxComponents> {
     let contents = utils::read_file(filename).ok()?;
 
     let yaml_docs = YamlLoader::load_from_str(&contents).ok()?;
@@ -36,36 +46,67 @@ fn get_kube_ns(filename: path::PathBuf, current_ctx: String) -> Option<String> {
     }
     let conf = &yaml_docs[0];
 
-    let ns = conf["contexts"].as_vec().and_then(|contexts| {
+    let ctx_yaml = conf["contexts"].as_vec().and_then(|contexts| {
         contexts
             .iter()
             .filter_map(|ctx| Some((ctx, ctx["name"].as_str()?)))
             .find(|(_, name)| *name == current_ctx)
-            .and_then(|(ctx, _)| ctx["context"]["namespace"].as_str())
-    })?;
+    });
 
-    if ns.is_empty() {
-        return None;
-    }
-    Some(ns.to_owned())
+    let ctx_components = KubeCtxComponents {
+        user: ctx_yaml
+            .and_then(|(ctx, _)| ctx["context"]["user"].as_str())
+            .and_then(|s| {
+                if s.is_empty() {
+                    return None;
+                }
+                Some(s.to_owned())
+            }),
+        namespace: ctx_yaml
+            .and_then(|(ctx, _)| ctx["context"]["namespace"].as_str())
+            .and_then(|s| {
+                if s.is_empty() {
+                    return None;
+                }
+                Some(s.to_owned())
+            }),
+        cluster: ctx_yaml
+            .and_then(|(ctx, _)| ctx["context"]["cluster"].as_str())
+            .and_then(|s| {
+                if s.is_empty() {
+                    return None;
+                }
+                Some(s.to_owned())
+            }),
+    };
+
+    Some(ctx_components)
+}
+
+fn get_kube_user<'a>(config: &'a KubernetesConfig, kube_user: &'a str) -> Cow<'a, str> {
+    return get_alias(&config.user_aliases, kube_user).unwrap_or(Cow::Borrowed(kube_user));
 }
 
 fn get_kube_context_name<'a>(config: &'a KubernetesConfig, kube_ctx: &'a str) -> Cow<'a, str> {
-    if let Some(val) = config.context_aliases.get(kube_ctx) {
-        return Cow::Borrowed(val);
+    return get_alias(&config.context_aliases, kube_ctx).unwrap_or(Cow::Borrowed(kube_ctx));
+}
+
+fn get_alias<'a>(
+    aliases: &'a HashMap<String, &'a str>,
+    alias_candidate: &'a str,
+) -> Option<Cow<'a, str>> {
+    if let Some(val) = aliases.get(alias_candidate) {
+        return Some(Cow::Borrowed(val));
     }
 
-    config
-        .context_aliases
-        .iter()
-        .find_map(|(k, v)| {
-            let re = regex::Regex::new(&format!("^{}$", k)).ok()?;
-            match re.replace(kube_ctx, *v) {
-                Cow::Owned(replaced) => Some(Cow::Owned(replaced)),
-                _ => None,
-            }
-        })
-        .unwrap_or(Cow::Borrowed(kube_ctx))
+    return aliases.iter().find_map(|(k, v)| {
+        let re = regex::Regex::new(&format!("^{}$", k)).ok()?;
+        let replaced = re.replace(alias_candidate, *v);
+        match replaced {
+            Cow::Owned(replaced) => Some(Cow::Owned(replaced)),
+            _ => None,
+        }
+    });
 }
 
 pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
@@ -86,8 +127,22 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
 
     let kube_ctx = env::split_paths(&kube_cfg).find_map(get_kube_context)?;
 
-    let kube_ns =
-        env::split_paths(&kube_cfg).find_map(|filename| get_kube_ns(filename, kube_ctx.clone()));
+    let ctx_components: Vec<Option<KubeCtxComponents>> = env::split_paths(&kube_cfg)
+        .map(|filename| get_kube_ctx_component(filename, kube_ctx.clone()))
+        .collect();
+
+    let kube_user = ctx_components.iter().find(|&ctx| match ctx {
+        Some(kube) => kube.user.is_some(),
+        None => false,
+    });
+    let kube_ns = ctx_components.iter().find(|&ctx| match ctx {
+        Some(kube) => kube.namespace.is_some(),
+        None => false,
+    });
+    let kube_cluster = ctx_components.iter().find(|&ctx| match ctx {
+        Some(kube) => kube.cluster.is_some(),
+        None => false,
+    });
 
     let parsed = StringFormatter::new(config.format).and_then(|formatter| {
         formatter
@@ -101,7 +156,26 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
             })
             .map(|variable| match variable {
                 "context" => Some(Ok(get_kube_context_name(&config, &kube_ctx))),
-                "namespace" => kube_ns.as_ref().map(|s| Ok(Cow::Borrowed(s.as_str()))),
+
+                "namespace" => kube_ns.and_then(|ctx| {
+                    ctx.as_ref().map(|kube| {
+                        // unwrap is safe as kube_ns only holds kube.namespace.is_some()
+                        Ok(Cow::Borrowed(kube.namespace.as_ref().unwrap().as_str()))
+                    })
+                }),
+                "user" => kube_user.and_then(|ctx| {
+                    ctx.as_ref().map(|kube| {
+                        // unwrap is safe as kube_user only holds kube.user.is_some()
+                        Ok(get_kube_user(&config, kube.user.as_ref().unwrap().as_str()))
+                    })
+                }),
+                "cluster" => kube_cluster.and_then(|ctx| {
+                    ctx.as_ref().map(|kube| {
+                        // unwrap is safe as kube_cluster only holds kube.cluster.is_some()
+                        Ok(Cow::Borrowed(kube.cluster.as_ref().unwrap().as_str()))
+                    })
+                }),
+
                 _ => None,
             })
             .parse(None, Some(context))
@@ -461,6 +535,285 @@ users: []
         assert_eq!(expected, actual_cc_first);
         assert_eq!(expected, actual_ctx_first);
 
+        dir.close()
+    }
+
+    fn base_test_user_alias(
+        user_name: &str,
+        config: toml::Value,
+        expected: &str,
+    ) -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+
+        let filename = dir.path().join("config");
+
+        let mut file = File::create(&filename)?;
+        file.write_all(
+            format!(
+                "
+apiVersion: v1
+clusters: []
+contexts:
+  - context:
+      cluster: test_cluster
+      user: {}
+      namespace: test_namespace
+    name: test_context
+current-context: test_context
+kind: Config
+preferences: {{}}
+users: []
+",
+                user_name
+            )
+            .as_bytes(),
+        )?;
+        file.sync_all()?;
+
+        let actual = ModuleRenderer::new("kubernetes")
+            .path(dir.path())
+            .env("KUBECONFIG", filename.to_string_lossy().as_ref())
+            .config(config)
+            .collect();
+
+        let expected = Some(format!("{} in ", Color::Cyan.bold().paint(expected)));
+        assert_eq!(expected, actual);
+
+        dir.close()
+    }
+
+    #[test]
+    fn test_user_alias_simple() -> io::Result<()> {
+        base_test_user_alias(
+            "test_user",
+            toml::toml! {
+                [kubernetes]
+                disabled = false
+                format = "[$symbol$context( \\($user\\))]($style) in "
+                [kubernetes.user_aliases]
+                "test_user" = "test_alias"
+                ".*" = "literal match has precedence"
+            },
+            "☸ test_context (test_alias)",
+        )
+    }
+
+    #[test]
+    fn test_user_alias_regex() -> io::Result<()> {
+        base_test_user_alias(
+            "openshift-cluster/user",
+            toml::toml! {
+                [kubernetes]
+                disabled = false
+                format = "[$symbol$context( \\($user\\))]($style) in "
+                [kubernetes.user_aliases]
+                "openshift-cluster/.*" = "test_alias"
+            },
+            "☸ test_context (test_alias)",
+        )
+    }
+
+    #[test]
+    fn test_user_alias_regex_replace() -> io::Result<()> {
+        base_test_user_alias(
+            "gke_infra-user-28cccff6_europe-west4_cluster-1",
+            toml::toml! {
+                [kubernetes]
+                disabled = false
+                format = "[$symbol$context( \\($user\\))]($style) in "
+                [kubernetes.user_aliases]
+                "gke_.*_(?P<cluster>[\\w-]+)" = "example: $cluster"
+            },
+            "☸ test_context (example: cluster-1)",
+        )
+    }
+
+    #[test]
+    fn test_user_alias_broken_regex() -> io::Result<()> {
+        base_test_user_alias(
+            "input",
+            toml::toml! {
+                [kubernetes]
+                disabled = false
+                format = "[$symbol$context( \\($user\\))]($style) in "
+                [kubernetes.user_aliases]
+                "input[.*" = "this does not match"
+            },
+            "☸ test_context (input)",
+        )
+    }
+
+    #[test]
+    fn test_user_should_use_default_if_no_matching_alias() -> io::Result<()> {
+        base_test_user_alias(
+            "gke_infra-user-28cccff6_europe-west4_cluster-1",
+            toml::toml! {
+                [kubernetes]
+                disabled = false
+                format = "[$symbol$context( \\($user\\))]($style) in "
+                [kubernetes.user_aliases]
+                "([A-Z])\\w+" = "this does not match"
+                "gke_infra-user-28cccff6" = "this does not match"
+            },
+            "☸ test_context (gke_infra-user-28cccff6_europe-west4_cluster-1)",
+        )
+    }
+
+    #[test]
+    fn test_kube_user() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+
+        let filename = dir.path().join("config");
+
+        let mut file = File::create(&filename)?;
+        file.write_all(
+            b"
+apiVersion: v1
+clusters: []
+contexts:
+  - context:
+      cluster: test_cluster
+      user: test_user
+      namespace: test_namespace
+    name: test_context
+current-context: test_context
+kind: Config
+preferences: {}
+users: []
+",
+        )?;
+        file.sync_all()?;
+
+        let actual = ModuleRenderer::new("kubernetes")
+            .path(dir.path())
+            .env("KUBECONFIG", filename.to_string_lossy().as_ref())
+            .config(toml::toml! {
+                [kubernetes]
+                format = "($user)"
+                disabled = false
+            })
+            .collect();
+
+        let expected = Some("test_user".to_string());
+        assert_eq!(expected, actual);
+        dir.close()
+    }
+
+    #[test]
+    fn test_kube_cluster() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+
+        let filename = dir.path().join("config");
+
+        let mut file = File::create(&filename)?;
+        file.write_all(
+            b"
+apiVersion: v1
+clusters: []
+contexts:
+  - context:
+      cluster: test_cluster
+      user: test_user
+      namespace: test_namespace
+    name: test_context
+current-context: test_context
+kind: Config
+preferences: {}
+users: []
+",
+        )?;
+        file.sync_all()?;
+
+        let actual = ModuleRenderer::new("kubernetes")
+            .path(dir.path())
+            .env("KUBECONFIG", filename.to_string_lossy().as_ref())
+            .config(toml::toml! {
+                [kubernetes]
+                format = "($cluster)"
+                disabled = false
+            })
+            .collect();
+
+        let expected = Some("test_cluster".to_string());
+        assert_eq!(expected, actual);
+        dir.close()
+    }
+
+    #[test]
+    fn test_kube_user_missing() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+
+        let filename = dir.path().join("config");
+
+        let mut file = File::create(&filename)?;
+        file.write_all(
+            b"
+apiVersion: v1
+clusters: []
+contexts:
+  - context:
+      cluster: test_cluster
+      namespace: test_namespace
+    name: test_context
+current-context: test_context
+kind: Config
+preferences: {}
+users: []
+",
+        )?;
+        file.sync_all()?;
+
+        let actual = ModuleRenderer::new("kubernetes")
+            .path(dir.path())
+            .env("KUBECONFIG", filename.to_string_lossy().as_ref())
+            .config(toml::toml! {
+                [kubernetes]
+                format = "$symbol($user )($cluster )($namespace)"
+                disabled = false
+            })
+            .collect();
+
+        let expected = Some("☸ test_cluster test_namespace".to_string());
+        assert_eq!(expected, actual);
+        dir.close()
+    }
+
+    #[test]
+    fn test_kube_cluster_missing() -> io::Result<()> {
+        let dir = tempfile::tempdir()?;
+
+        let filename = dir.path().join("config");
+
+        let mut file = File::create(&filename)?;
+        file.write_all(
+            b"
+apiVersion: v1
+clusters: []
+contexts:
+  - context:
+      user: test_user
+      namespace: test_namespace
+    name: test_context
+current-context: test_context
+kind: Config
+preferences: {}
+users: []
+",
+        )?;
+        file.sync_all()?;
+
+        let actual = ModuleRenderer::new("kubernetes")
+            .path(dir.path())
+            .env("KUBECONFIG", filename.to_string_lossy().as_ref())
+            .config(toml::toml! {
+                [kubernetes]
+                format = "$symbol($user )($cluster )($namespace)"
+                disabled = false
+            })
+            .collect();
+
+        let expected = Some("☸ test_user test_namespace".to_string());
+        assert_eq!(expected, actual);
         dir.close()
     }
 }

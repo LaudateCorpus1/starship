@@ -1,4 +1,4 @@
-# 🚀 Advanced Installation
+# Advanced Installation
 
 To install starship, you need to do two things:
 
@@ -11,7 +11,7 @@ There are so many platforms out there that they didn't fit into the main README.
 
 ## [Chocolatey](https://chocolatey.org)
 
-### Требования
+### Обязательные требования
 
 Head over to the [Chocolatey installation page](https://chocolatey.org/install) and follow the instructions to install Chocolatey.
 
@@ -23,7 +23,7 @@ choco install starship
 
 ## [termux](https://termux.com)
 
-### Требования
+### Обязательные требования
 
 ```sh
 pkg install getconf
@@ -32,7 +32,7 @@ pkg install getconf
 ### Installation
 
 ```sh
-sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --bin-dir /data/data/com.termux/files/usr/bin
+curl -sS https://starship.rs/install.sh | sh -s -- --bin-dir /data/data/com.termux/files/usr/bin
 ```
 
 ## [Funtoo Linux](https://www.funtoo.org/Welcome)
@@ -63,7 +63,6 @@ Enable the `programs.starship` module in your `home.nix` file, and add your sett
 {
   programs.starship = {
     enable = true;
-    enableZshIntegration = true;
     # Configuration written to ~/.config/starship.toml
     settings = {
       # add_newline = false;
