@@ -100,7 +100,7 @@ fn get_alias<'a>(
     }
 
     return aliases.iter().find_map(|(k, v)| {
-        let re = regex::Regex::new(&format!("^{}$", k)).ok()?;
+        let re = regex::Regex::new(&format!("^{k}$")).ok()?;
         let replaced = re.replace(alias_candidate, *v);
         match replaced {
             Cow::Owned(replaced) => Some(Cow::Owned(replaced)),
@@ -212,7 +212,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
 #[cfg(test)]
 mod tests {
     use crate::test::ModuleRenderer;
-    use ansi_term::Color;
+    use nu_ansi_term::Color;
     use std::env;
     use std::fs::{create_dir, File};
     use std::io::{self, Write};
@@ -385,12 +385,11 @@ users: []
 apiVersion: v1
 clusters: []
 contexts: []
-current-context: {}
+current-context: {ctx_name}
 kind: Config
 preferences: {{}}
 users: []
-",
-                ctx_name
+"
             )
             .as_bytes(),
         )?;
@@ -695,15 +694,14 @@ clusters: []
 contexts:
   - context:
       cluster: test_cluster
-      user: {}
+      user: {user_name}
       namespace: test_namespace
     name: test_context
 current-context: test_context
 kind: Config
 preferences: {{}}
 users: []
-",
-                user_name
+"
             )
             .as_bytes(),
         )?;
